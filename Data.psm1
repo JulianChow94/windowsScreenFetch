@@ -5,7 +5,7 @@ Function Get-SystemSpecifications()
     $UserInfo = Get-UserInformation;
     $OS = Get-OS;
     $Kernel = Get-Kernel;
-    $Uptime = Get-Uptime;
+    $Uptime = Get-SystemUptime;
     $Motherboard = Get-Mobo;
     $Shell = Get-Shell;
     $Displays = Get-Displays;
@@ -75,7 +75,7 @@ Function Get-Kernel()
     return (Get-CimInstance  Win32_OperatingSystem).Version;
 }
 
-Function Get-Uptime()
+Function Get-SystemUptime()
 {
     $Uptime = (([DateTime](Get-CimInstance Win32_OperatingSystem).LocalDateTime) -
             ([DateTime](Get-CimInstance Win32_OperatingSystem).LastBootUpTime));
@@ -96,37 +96,37 @@ Function Get-Shell()
     return "PowerShell $($PSVersionTable.PSVersion.ToString())";
 }
 
-Function Get-Display()
-{
-    # This gives the current resolution
-    $videoMode = Get-CimInstance -Class Win32_VideoController;
-    $Display = $videoMode.CurrentHorizontalResolution.ToString() + " x " + $videoMode.CurrentVerticalResolution.ToString() + " (" + $videoMode.CurrentRefreshRate.ToString() + "Hz)";
-    return $Display;
-}
-
 Function Get-Displays()
 {
-    return Get-Display;
-
     $Displays = New-Object System.Collections.Generic.List[System.Object];
+    
+    $Monitors = Get-CimInstance -ClassName Win32_VideoController | Select-Object CurrentHorizontalResolution, CurrentVerticalResolution, CurrentRefreshRate;
 
-    # This gives the available resolutions
-    $monitors = Get-CimInstance -N "root\wmi" -Class WmiMonitorListedSupportedSourceModes
+    $NumMonitors = ($Monitors | Measure-Object).Count;
 
-    foreach($monitor in $monitors) 
-    {
-        # Sort the available modes by display area (width*height)
-        $sortedResolutions = $monitor.MonitorSourceModes | Sort-Object -Property {$_.HorizontalActivePixels * $_.VerticalActivePixels}
-        $maxResolutions = $sortedResolutions | Select-Object @{N="MaxRes";E={"$($_.HorizontalActivePixels) x $($_.VerticalActivePixels) "}}
+    for ($i=0; $i -lt $NumMonitors; $i++) {
+        $HorizontalResolution = $Monitors[$i].CurrentHorizontalResolution;
+        $VerticalResolution = $Monitors[$i].CurrentVerticalResolution;
+        $RefreshRate = $Monitors[$i].CurrentRefreshRate;
 
-        $Displays.Add(($maxResolutions | Select-Object -Last 1).MaxRes);
+        if ($HorizontalResolution -And $VerticalResolution -And $RefreshRate) {
+            $Display = $HorizontalResolution.ToString() + " x " + $VerticalResolution.ToString() + " @ " + $RefreshRate.ToString() + "Hz";
+
+            if (!$Displays) {
+                $Displays = $Display;
+            }
+            else {
+                $Displays = ($Displays, $Display) -join("; ");
+            }
+        }
     }
 
-    if ($Displays.Count -eq 1) {
-        return Get-Display
+    if ($Displays) {
+        return $Displays;
     }
-
-    return $Displays;
+    else {
+        return "NONE";
+    }
 }
 
 Function Get-WM() 
@@ -146,7 +146,7 @@ Function Get-CPU()
 
 Function Get-GPU() 
 {
-    return (Get-CimInstance Win32_DisplayConfiguration).DeviceName;
+    return (Get-CimInstance -ClassName Win32_VideoController | ForEach-Object {$_.Name}) -join("; ");
 }
 
 Function Get-RAM() 
